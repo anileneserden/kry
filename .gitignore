@@ -1,0 +1,17 @@
+# PyInstaller
+build/
+dist/
+
+# Python bytecode ve cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Sanal ortamlar
+venv/
+env/
+.env
+
+# İşletim sistemi kalıntıları
+.DS_Store
+Thumbs.db
