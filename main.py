@@ -2,6 +2,7 @@
 import os
 import sys
 import argparse
+import subprocess
 
 # Şablon Kodlar (Python format karışıklığı olmaması için { -> {{ ve } -> }} yapıldı, sadece {app_name} değişecek)
 MAIN_C_TEMPLATE = """#include <kef.h>
@@ -72,7 +73,6 @@ def cmd_init(args):
     makefile_path = os.path.join(target_dir, "Makefile")
     linker_path = os.path.join(target_dir, "linker.ld")
 
-    # .format() yerine basit replace kullanalım, parantez patlaması yaşanmaz
     main_c_content = MAIN_C_TEMPLATE.replace("{app_name}", app_name)
     with open(main_c_path, "w", encoding="utf-8") as f:
         f.write(main_c_content)
@@ -92,10 +92,29 @@ def cmd_init(args):
 
     print(f"\nBasariyla '{app_name}' uygulamasi {target_dir} icinde hazirlandi!")
 
+def cmd_fs_mount(args):
+    image_path = args.image
+    mount_point = args.mountpoint
+
+    print(f"[*] Dosya sistemi bağlanıyor...")
+    print(f"    İmaj: {image_path}")
+    print(f"    Hedef Dizin: {mount_point}")
+    
+    if not os.path.exists(image_path):
+        print(f"[-] Hata: İmaj dosyası bulunamadı: {image_path}")
+        sys.exit(1)
+        
+    if not os.path.exists(mount_point):
+        os.makedirs(mount_point, exist_ok=True)
+
+    # Buraya ileride KryFSMountSystem (FUSE) entegrasyonunu bağlayacağız
+    print("[+] Mount altyapısı hazır. FUSE entegrasyonu yazılmayı bekliyor.")
+
 def main():
     parser = argparse.ArgumentParser(description="KuvixOS SDK CLI (kry)")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
+    # init komutu
     parser_init = subparsers.add_parser("init", help="Yeni bir uygulama iskeleti olusturur.")
     parser_init.add_argument("-t", "--type", required=True, choices=["gui", "cli"], help="Uygulama tipi")
     parser_init.add_argument("-n", "--name", required=True, help="Uygulama adi")
@@ -103,6 +122,15 @@ def main():
     parser_init.add_argument("-a", "--author", default="Kuvix Developer", help="Yazar adi")
     parser_init.add_argument("-v", "--version", default="1.0.0", help="Uygulama surumu")
     parser_init.set_defaults(func=cmd_init)
+
+    # fs alt komutları (kry fs mount ...)
+    parser_fs = subparsers.add_parser("fs", help="KRYFS dosya sistemi işlemleri")
+    fs_subparsers = parser_fs.add_subparsers(dest="fs_command", required=True)
+
+    parser_mount = fs_subparsers.add_parser("mount", help="KRYFS imajını FUSE ile bağlar")
+    parser_mount.add_argument("image", help="KRYFS imaj dosyasının yolu (.img)")
+    parser_mount.add_argument("mountpoint", help="Bağlanacak hedef klasör")
+    parser_mount.set_defaults(func=cmd_fs_mount)
 
     args = parser.parse_args()
     args.func(args)
