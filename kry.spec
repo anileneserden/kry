@@ -5,8 +5,16 @@ a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[],
-    hiddenimports=[],
+    datas=[
+        ('build_projects', 'build_projects'),
+        ('create_projects', 'create_projects'),
+    ],
+    hiddenimports=[
+        'create_projects', 
+        'create_projects.app_gui',
+        'build_projects',
+        'build_projects.app_gui'
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
