@@ -15,3 +15,5 @@ env/
 # İşletim sistemi kalıntıları
 .DS_Store
 Thumbs.db
+
+*.txt
