@@ -45,10 +45,27 @@ struct kef_api_table_t {
     bool (*is_key_pressed)(int key_code);
 };
 
+// Inline Sarmalayıcılar (Wrappers)
 static inline int kef_window_create(const char* t, int w, int h) { return KEF_API_TABLE->window_create(t, w, h); }
 static inline void kef_print(const char* s) { KEF_API_TABLE->print(s); }
+static inline void kef_exit(void) { KEF_API_TABLE->exit(); }
+
 static inline int label(int x, int y, uint32_t c, const char* t, uint8_t a) { return KEF_API_TABLE->label_create(x, y, c, t, a); }
 static inline int panel(int x, int y, int w, int h, uint32_t c, uint8_t a) { return KEF_API_TABLE->panel_create(x, y, w, h, c, c, 0, 0, a); }
+static inline int kef_panel_create(int x, int y, int w, int h, uint32_t c, uint32_t hc, void (*click)(void), void (*hover)(void), uint8_t a) { 
+    return KEF_API_TABLE->panel_create(x, y, w, h, c, hc, click, hover, a); 
+}
+static inline int button(int x, int y, int w, int h, uint32_t bg, uint32_t fg, const char* t, void (*click)(void), uint8_t a) { 
+    return KEF_API_TABLE->button_create(x, y, w, h, bg, fg, t, click, a); 
+}
+
+static inline size_t kef_strlen(const char* str) { return KEF_API_TABLE->strlen(str); }
+static inline int kef_strcmp(const char* s1, const char* s2) { return KEF_API_TABLE->strcmp(s1, s2); }
+
+static inline void backgroundColor(uint32_t color) { KEF_API_TABLE->background_color(color); }
+static inline void background_color(uint32_t color) { KEF_API_TABLE->background_color(color); }
+
+static inline bool is_key_pressed(int key_code) { return KEF_API_TABLE->is_key_pressed(key_code); }
 
 #endif
 """
@@ -89,7 +106,10 @@ def format_kef(input_bin, output_kef, input_elf):
         payload = f.read()
         
     payload_size = len(payload)
-    header_size = 28  
+    
+    # Header formatı ve boyutunu otomatik hesapla
+    HEADER_FORMAT = "<IHHIIII"
+    header_size = struct.calcsize(HEADER_FORMAT)
     
     entry_address = get_symbol_offset(input_elf, "_start")
     base_load_address = 0x400000
@@ -102,12 +122,13 @@ def format_kef(input_bin, output_kef, input_elf):
     print(f"[+] Tespit edilen _start adresi: 0x{entry_address:X}")
     print(f"[+] Hesaplanan entry offset: 0x{entry_offset:X}")
     print(f"[+] Gerçek Payload Boyutu: {payload_size} bytes")
+    print(f"[+] Header Boyutu: {header_size} bytes")
     print(f"[+] Toplam KEF Boyutu (Header + Payload): {header_size + payload_size} bytes")
     
     flags = 0
     
     header = struct.pack(
-        "<IHHIIII",
+        HEADER_FORMAT,
         MAGIC,
         VERSION,
         ARCH_I386,

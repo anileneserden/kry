@@ -144,7 +144,10 @@ def format_kef(input_bin, output_kef, input_elf):
         payload = f.read()
         
     payload_size = len(payload)
-    header_size = 28  # struct.pack format boyutu ile uyumlu
+    
+    # Header formatı ve boyutunu otomatik hesapla
+    HEADER_FORMAT = "<IHHIIII"
+    header_size = struct.calcsize(HEADER_FORMAT)
     
     entry_address = get_symbol_offset(input_elf, "_start")
     base_load_address = 0x400000
@@ -157,12 +160,13 @@ def format_kef(input_bin, output_kef, input_elf):
     print(f"[+] Tespit edilen _start adresi: 0x{entry_address:X}")
     print(f"[+] Hesaplanan entry offset: 0x{entry_offset:X}")
     print(f"[+] Gerçek Payload Boyutu: {payload_size} bytes")
+    print(f"[+] Header Boyutu: {header_size} bytes")
     print(f"[+] Toplam KEF Boyutu (Header + Payload): {header_size + payload_size} bytes")
     
     flags = 0
     
     header = struct.pack(
-        "<IHHIIII",
+        HEADER_FORMAT,
         MAGIC,
         VERSION,
         ARCH_I386,
