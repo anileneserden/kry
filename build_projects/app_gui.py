@@ -32,6 +32,7 @@ struct kef_api_table_t {
     int (*label_create)(int x, int y, uint32_t color, const char* text, uint8_t anchor);
     int (*panel_create)(int x, int y, int w, int h, uint32_t color, uint32_t hover_color, void (*on_click)(void), void (*on_hover)(void), uint8_t anchor);
     int (*button_create)(int x, int y, int w, int h, uint32_t bg_color, uint32_t text_color, const char* text, void (*on_click)(void), uint8_t anchor);
+    int (*picturebox_create)(int x, int y, int w, int h, const char* img_path, uint8_t anchor);
     int (*input_create)(int x, int y, int w, int h, 
                         const char* text, const char* placeholdertext, 
                         uint32_t backcolor, uint32_t color, 
@@ -64,6 +65,10 @@ static inline int kef_panel_create(int x, int y, int w, int h, uint32_t c, uint3
 }
 static inline int button(int x, int y, int w, int h, uint32_t bg, uint32_t fg, const char* t, void (*click)(void), uint8_t a) { 
     return KEF_API_TABLE->button_create(x, y, w, h, bg, fg, t, click, a); 
+}
+
+static inline int picturebox(int x, int y, int w, int h, const char* img_path, uint8_t anchor) {
+    return KEF_API_TABLE->picturebox_create(x, y, w, h, img_path, anchor);
 }
 
 static inline int kef_combobox_create(int x, int y, int w, int h, const char** items, int count, int def_idx, uint32_t bg, uint32_t fg, uint32_t border, uint8_t a) {
@@ -121,17 +126,17 @@ import struct
 import os
 
 def format_kef2(input_bin, output_kef, input_elf):
-    MAGIC = 0x3246454B  # "KEF2" ascii
+    MAGIC = 0x3246454B
     VERSION = 2
     ARCHITECTURE_I386 = 1
     FLAGS = 0
     
     if not os.path.exists(input_bin):
-        print(f"[-] Hata: Input binary dosyası bulunamadı: {input_bin}")
+        print(f"[-] Hata: Input binary dosyasi bulunamadi: {input_bin}")
         sys.exit(1)
         
     if not os.path.exists(input_elf):
-        print(f"[-] Hata: Input ELF dosyası bulunamadı: {input_elf}")
+        print(f"[-] Hata: Input ELF dosyasi bulunamadi: {input_elf}")
         sys.exit(1)
 
     with open(input_bin, "rb") as f:
@@ -139,44 +144,93 @@ def format_kef2(input_bin, output_kef, input_elf):
         
     payload_size = len(payload)
     
-    # C tarafındaki kef2_header_t yapısıyla birebir uyumlu format:
-    # magic (4B), version (2B), architecture (2B), section_count (4B), flags (4B) = 16 bytes
+    output_dir = os.path.dirname(os.path.abspath(output_kef))
+    resources_dir_path = os.path.join(output_dir, "resources")
+    
+    resource_entries = []
+    resources_payload = bytearray()
+    
+    if os.path.exists(resources_dir_path) and os.path.isdir(resources_dir_path):
+        print(f"[*] Kaynak dizini taranior: {resources_dir_path}")
+        for filename in os.listdir(resources_dir_path):
+            file_full_path = os.path.join(resources_dir_path, filename)
+            if os.path.isfile(file_full_path):
+                with open(file_full_path, "rb") as rf:
+                    file_data = rf.read()
+                
+                stored_name = f"resources/{filename}"
+                
+                resource_entries.append({
+                    "name": stored_name,
+                    "data": file_data,
+                    "size": len(file_data)
+                })
+                print(f"  [+] Kaynak bulundu ve yuklendi: {stored_name} ({len(file_data)} bytes)")
+    else:
+        print(f"[*] Bilgi: '{resources_dir_path}' klasoru bulunamadi, kaynak eklenmeyecek.")
+
+    section_count = 2 if resource_entries else 1
+    
     HEADER_FORMAT = "<IHHII"
     header_size = struct.calcsize(HEADER_FORMAT)
     
-    # KEFv2 Section Header: Type (4B), Offset (4B), Size (4B) = 12 bytes
     SECTION_HEADER_FORMAT = "<III"
     section_header_size = struct.calcsize(SECTION_HEADER_FORMAT)
     
-    section_count = 1
     text_section_offset = header_size + (section_count * section_header_size)
+    text_section_size = payload_size
+    
+    current_offset = text_section_offset + text_section_size
+    
+    if resource_entries:
+        for res in resource_entries:
+            name_bytes = res["name"].encode('utf-8') + b'\\x00' if False else res["name"].encode('utf-8') + b'\\x00'.replace(b'\\\\x00', b'\\x00') # guvenli null byte
+            # Alternatif temiz null ekleme: res["name"].encode('utf-8') + b'\\x00' yerine dogrudan b'\\0'
+            name_bytes = res["name"].encode('utf-8') + b'\\x00'.replace(b'\\\\x00', b'\\x00')
+            
+            # Daha sade ve temiz hali:
+            name_bytes = res["name"].encode('utf-8') + b'\\0' # Python bunu dogru yorumlar
+            
+    if resource_entries:
+        for res in resource_entries:
+            resources_payload.extend(res["name"].encode('utf-8') + b'\\x00')
+            resources_payload.extend(struct.pack("<I", res["size"]))
+            resources_payload.extend(res["data"])
+            resources_payload.extend(b"IMGEND")
     
     header = struct.pack(HEADER_FORMAT, MAGIC, VERSION, ARCHITECTURE_I386, section_count, FLAGS)
     
-    # KEF2_SECTION_TEXT = 1
     KEF2_SECTION_TEXT = 1
-    sec_header = struct.pack(SECTION_HEADER_FORMAT, KEF2_SECTION_TEXT, text_section_offset, payload_size)
+    KEF2_SECTION_RESOURCES = 2
     
-    print(f"[+] İşlenen Binary: {input_bin}")
-    print(f"[+] KEFv2 Paketleme: Section Count = {section_count}, Header Boyutu = {header_size} bytes, Payload Boyutu = {payload_size} bytes")
+    print(f"[+] Islenen Binary: {input_bin}")
+    print(f"[+] KEFv2 Paketleme: Section Count = {section_count}, Kaynak Sayisi = {len(resource_entries)}")
     
     with open(output_kef, "wb") as f:
         f.write(header)
-        f.write(sec_header)
-        f.write(payload)
+        f.write(struct.pack(SECTION_HEADER_FORMAT, KEF2_SECTION_TEXT, text_section_offset, text_section_size))
         
-    print(f"[+] Başarıyla KEFv2 formatında paketlendi: {output_kef}\\n")
+        if resource_entries:
+            res_section_offset = current_offset
+            res_section_size = len(resources_payload)
+            f.write(struct.pack(SECTION_HEADER_FORMAT, KEF2_SECTION_RESOURCES, res_section_offset, res_section_size))
+            
+        f.write(payload)
+        if resource_entries:
+            f.write(resources_payload)
+            
+    print(f"[+] Basariyla KEFv2 formatinda paketlendi: {output_kef}\\n")
 
 if __name__ == "__main__":
     if len(sys.argv) < 4:
-        print("Kullanım: python3 kef2_format.py <input.bin> <output.kef> <input.elf>")
+        print("Kullanim: python3 kef2_format.py <input.bin> <output.kef> <input.elf>")
         sys.exit(1)
         
     format_kef2(sys.argv[1], sys.argv[2], sys.argv[3])
 """
 
 def ensure_kry_sdk_on_build():
-    """Derleme aşamasında ~/.kry/ ortamının ve gerekli KEFv2 dosyalarının eksiksiz olduğunu doğrular."""
+    """Derleme aşamasında ~/.kry/ ortamının ve gerekli KEFv2 dosyalarının eksiksiz ve güncel olduğunu doğrular."""
     kry_home = os.path.expanduser("~/.kry")
     kry_include = os.path.join(kry_home, "include")
     api_header_path = os.path.join(kry_include, "kef2_api.h")
@@ -185,27 +239,31 @@ def ensure_kry_sdk_on_build():
     
     os.makedirs(kry_include, exist_ok=True)
     
-    need_write = True
+    # 1. kef2_api.h kontrolü ve otomatik güncelleme
+    need_write_api = True
     if os.path.exists(api_header_path):
         with open(api_header_path, "r", encoding="utf-8") as f:
             content = f.read()
-            if "vfs_file_info_t" in content and "KEF2_API_H" in content:
-                need_write = False
+            # Eğer şablondaki tüm anahtar kelimeler ve yeni picturebox_create mevcutsa tekrar yazma
+            if "vfs_file_info_t" in content and "KEF2_API_H" in content and "picturebox_create" in content:
+                need_write_api = False
 
-    if need_write:
-        print(f"[*] Uyarı: '{api_header_path}' eksik veya güncel değil. Yeniden oluşturuluyor...")
+    if need_write_api:
+        print(f"[*] Bilgi: '{api_header_path}' eksik veya güncel değil. Otomatik güncelleniyor...")
         with open(api_header_path, "w", encoding="utf-8") as f:
             f.write(DEFAULT_KEF2_API_H)
         print(f"[✔] KEFv2 SDK başlık dosyası güncellendi.")
         
+    # 2. linker.ld kontrolü
     if not os.path.exists(linker_path):
-        print(f"[*] Uyarı: '{linker_path}' bulunamadı. Oluşturuluyor...")
+        print(f"[*] Bilgi: '{linker_path}' bulunamadı. Oluşturuluyor...")
         with open(linker_path, "w", encoding="utf-8") as f:
             f.write(LINKER_LD_TEMPLATE)
         print(f"[✔] Merkezi linker betiği oluşturuldu.")
         
+    # 3. kef2_format.py kontrolü
     if not os.path.exists(kef_format_py_path):
-        print(f"[*] Uyarı: '{kef_format_py_path}' bulunamadı. Oluşturuluyor...")
+        print(f"[*] Bilgi: '{kef_format_py_path}' bulunamadı. Oluşturuluyor...")
         with open(kef_format_py_path, "w", encoding="utf-8") as f:
             f.write(KEF2_FORMAT_PY_TEMPLATE)
         print(f"[✔] KEFv2 paketleme betiği oluşturuldu.")
@@ -217,6 +275,11 @@ def build_app(args):
     if not os.path.exists(target_dir):
         print(f"[-] Hata: Hedef dizin bulunamadı: {target_dir}")
         sys.exit(1)
+
+    # --- BURAYA EKLİYORUZ: Build aşamasında resources klasörü güvencesi ---
+    res_check_dir = os.path.join(target_dir, "resources")
+    os.makedirs(res_check_dir, exist_ok=True)
+    # ------------------------------------------------------------------
 
     ensure_kry_sdk_on_build()
 
