@@ -70,6 +70,12 @@ DEFAULT_KEF_API_H = """#ifndef KEF_API_H
 #define ANCHOR_TOP    (1 << 2)
 #define ANCHOR_BOTTOM (1 << 3)
 
+typedef struct __attribute__((packed)) {
+    char name[32];
+    uint32_t size;
+    bool is_directory;
+} vfs_file_info_t;
+
 // KEF API Tablosu ve Yardımcı Fonksiyon Makroları
 #define KEF_API_TABLE ((struct kef_api_table_t*)0x501000)
 
@@ -104,6 +110,8 @@ static inline int kef_window_create(const char* t, int w, int h) { return KEF_AP
 static inline void kef_print(const char* s) { KEF_API_TABLE->print(s); }
 static inline int label(int x, int y, uint32_t c, const char* t, uint8_t a) { return KEF_API_TABLE->label_create(x, y, c, t, a); }
 static inline int panel(int x, int y, int w, int h, uint32_t c, uint8_t a) { return KEF_API_TABLE->panel_create(x, y, w, h, c, c, 0, 0, a); }
+static inline int kef_get_directory_files(const char* path, void* list, int max) { return KEF_API_TABLE->get_directory_files(path, list, max); }
+static inline void* kef_read_file(const char* path, uint32_t* size) { return KEF_API_TABLE->read_file(path, size); }
 
 #endif
 """
@@ -145,7 +153,6 @@ def format_kef(input_bin, output_kef, input_elf):
         
     payload_size = len(payload)
     
-    # Header formatı ve boyutunu otomatik hesapla
     HEADER_FORMAT = "<IHHIIII"
     header_size = struct.calcsize(HEADER_FORMAT)
     
@@ -191,10 +198,11 @@ if __name__ == "__main__":
 """
 
 def ensure_kry_sdk():
-    """~/.kry/ ve altındaki include/kef_api.h ile kef_format.py varlığını kontrol eder, yoksa oluşturur."""
+    """~/.kry/ ve altındaki include/kef_api.h, linker.ld ile kef_format.py varlığını kontrol eder, yoksa oluşturur."""
     kry_home = os.path.expanduser("~/.kry")
     kry_include = os.path.join(kry_home, "include")
     api_header_path = os.path.join(kry_include, "kef_api.h")
+    linker_path = os.path.join(kry_home, "linker.ld")
     kef_format_py_path = os.path.join(kry_home, "kef_format.py")
     
     os.makedirs(kry_include, exist_ok=True)
@@ -204,6 +212,12 @@ def ensure_kry_sdk():
         with open(api_header_path, "w", encoding="utf-8") as f:
             f.write(DEFAULT_KEF_API_H)
         print(f"[✔] Varsayılan SDK dosyası oluşturuldu: {api_header_path}")
+        
+    if not os.path.exists(linker_path):
+        print(f"[*] '{linker_path}' bulunamadı. Otomatik olarak oluşturuluyor...")
+        with open(linker_path, "w", encoding="utf-8") as f:
+            f.write(LINKER_LD_TEMPLATE)
+        print(f"[✔] Varsayılan linker betiği oluşturuldu: {linker_path}")
         
     if not os.path.exists(kef_format_py_path):
         print(f"[*] '{kef_format_py_path}' bulunamadı. Otomatik olarak oluşturuluyor...")
@@ -215,15 +229,17 @@ def create_app(args):
     target_dir = args.dir if args.dir else "."
     app_name = args.name
     
-    # Proje oluşturulurken SDK ve araçların sistemde tam yerinde olduğundan emin oluyoruz
+    # SDK, linker ve araçların ~/.kry altında olduğundan emin oluyoruz
     ensure_kry_sdk()
-    kry_include = os.path.expanduser("~/.kry/include")
+    kry_home = os.path.expanduser("~/.kry")
+    kry_include = os.path.join(kry_home, "include")
+    global_linker_path = os.path.join(kry_home, "linker.ld")
 
     if not os.path.exists(target_dir):
         os.makedirs(target_dir)
         print(f"[+] Dizin oluşturuldu: {target_dir}")
 
-    # 1. kry.json oluşturma
+    # 1. kry.json oluşturma (Linker artık ~/.kry/linker.ld yolunu gösteriyor)
     kry_json_path = os.path.join(target_dir, "kry.json")
     kry_config = {
         "name": app_name,
@@ -237,42 +253,23 @@ def create_app(args):
             "-nostdlib", "-I~/.kry/include", "-O2"
         ],
         "linker-flags": [
-            "-m", "elf_i386", "-T", "linker.ld", "--oformat", "binary"
+            "-m", "elf_i386", "-T", global_linker_path, "--oformat", "binary"
         ]
     }
     with open(kry_json_path, "w", encoding="utf-8") as f:
         json.dump(kry_config, f, indent=4)
     print(f"[+] {kry_json_path} oluşturuldu.")
 
-    # 2. config.json oluşturma (İstediğin genel konfigürasyon dosyası)
-    config_json_path = os.path.join(target_dir, "config.json")
-    editor_choice = getattr(args, 'editor', 'vscode')
-    app_config_data = {
-        "editor": editor_choice
-    }
-    with open(config_json_path, "w", encoding="utf-8") as f:
-        json.dump(app_config_data, f, indent=4)
-    print(f"[+] {config_json_path} oluşturuldu.")
-
-    # 3. main.c oluşturma
+    # 2. main.c oluşturma
     main_c_path = os.path.join(target_dir, "main.c")
     with open(main_c_path, "w", encoding="utf-8") as f:
         f.write(GUI_MAIN_C_TEMPLATE.replace("{app_name}", app_name))
     print(f"[+] {main_c_path} oluşturuldu.")
 
-    # 4. linker.ld oluşturma
-    linker_path = os.path.join(target_dir, "linker.ld")
-    with open(linker_path, "w", encoding="utf-8") as f:
-        f.write(LINKER_LD_TEMPLATE)
-    print(f"[+] {linker_path} oluşturuldu.")
+    # (Artık proje dizinine linker.ld kopyalanmıyor, merkezi ~/.kry/linker.ld kullanılıyor)
 
-    # 5. kef_format.py dosyasını doğrudan proje içerisine de kopyalama (isteğe bağlı pratiklik sağlar)
-    kef_py_project_path = os.path.join(target_dir, "kef_format.py")
-    with open(kef_py_project_path, "w", encoding="utf-8") as f:
-        f.write(KEF_FORMAT_PY_TEMPLATE)
-    print(f"[+] {kef_py_project_path} oluşturuldu.")
-
-    # 6. VS Code c_cpp_properties.json desteği
+    # 3. VS Code c_cpp_properties.json desteği (.vscode içinde)
+    editor_choice = getattr(args, 'editor', 'vscode')
     if editor_choice == "vscode":
         vscode_dir = os.path.join(target_dir, ".vscode")
         os.makedirs(vscode_dir, exist_ok=True)
@@ -294,4 +291,4 @@ def create_app(args):
             json.dump(cpp_config, f, indent=4)
         print(f"[+] {cpp_props_path} oluşturuldu.")
 
-    print(f"\nBaşarıyla Makefile içermeyen '{app_name}' projesi {target_dir} içinde hazırlandı!")
+    print(f"\n[+] {app_name} projesi {target_dir} içinde hazırlandı!")
