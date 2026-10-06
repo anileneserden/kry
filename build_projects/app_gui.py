@@ -4,9 +4,9 @@ import sys
 import shutil
 import json
 
-# SDK ve format betiği şablonları (Eğer silindiyse otomatik yeniden oluşturmak için)
-DEFAULT_KEF_API_H = """#ifndef KEF_API_H
-#define KEF_API_H
+# KEFv2 SDK ve format betiği şablonları (Eğer silindiyse otomatik yeniden oluşturmak için)
+DEFAULT_KEF2_API_H = """#ifndef KEF2_API_H
+#define KEF2_API_H
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -38,10 +38,7 @@ struct kef_api_table_t {
                         uint32_t placeholder_color, uint32_t border_color, 
                         int border_thickness, uint8_t anchor);
     int (*input_get_text)(int input_id, char* out_buf, int max_len);
-    
-    // Kernel ile uyumlu olması için eklenen eksik pointer:
     int (*combobox_create)(int x, int y, int w, int h, const char** items, int item_count, int default_index, uint32_t bg_color, uint32_t text_color, uint32_t border_color, uint8_t anchor);
-
     int (*get_directory_files)(const char* full_path, vfs_file_info_t* out_list, int max_count);
     void* (*read_file)(const char* full_path, uint32_t* out_size);
     int (*strcmp)(const char* s1, const char* s2);
@@ -118,29 +115,16 @@ SECTIONS
 }
 """
 
-KEF_FORMAT_PY_TEMPLATE = """#!/usr/bin/env python3
+KEF2_FORMAT_PY_TEMPLATE = """#!/usr/bin/env python3
 import sys
 import struct
-import subprocess
 import os
 
-def get_symbol_offset(elf_file, symbol_name="_start"):
-    try:
-        result = subprocess.run(['nm', elf_file], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
-        for line in result.stdout.splitlines():
-            parts = line.split()
-            if len(parts) >= 3 and parts[2] == symbol_name:
-                return int(parts[0], 16)
-            elif len(parts) == 2 and parts[1] == symbol_name:
-                return int(parts[0], 16)
-    except Exception as e:
-        print(f"[-] Sembol adresi alınamadı ({symbol_name}): {e}")
-    return 0
-
-def format_kef(input_bin, output_kef, input_elf):
-    MAGIC = 0x0046454B  # "KEF\\0"
-    VERSION = 1
-    ARCH_I386 = 1
+def format_kef2(input_bin, output_kef, input_elf):
+    MAGIC = 0x3246454B  # "KEF2" ascii
+    VERSION = 2
+    ARCHITECTURE_I386 = 1
+    FLAGS = 0
     
     if not os.path.exists(input_bin):
         print(f"[-] Hata: Input binary dosyası bulunamadı: {input_bin}")
@@ -155,73 +139,64 @@ def format_kef(input_bin, output_kef, input_elf):
         
     payload_size = len(payload)
     
-    HEADER_FORMAT = "<IHHIIII"
+    # C tarafındaki kef2_header_t yapısıyla birebir uyumlu format:
+    # magic (4B), version (2B), architecture (2B), section_count (4B), flags (4B) = 16 bytes
+    HEADER_FORMAT = "<IHHII"
     header_size = struct.calcsize(HEADER_FORMAT)
     
-    entry_address = get_symbol_offset(input_elf, "_start")
-    base_load_address = 0x400000
-    if entry_address >= base_load_address:
-        entry_offset = entry_address - base_load_address
-    else:
-        entry_offset = entry_address
-
+    # KEFv2 Section Header: Type (4B), Offset (4B), Size (4B) = 12 bytes
+    SECTION_HEADER_FORMAT = "<III"
+    section_header_size = struct.calcsize(SECTION_HEADER_FORMAT)
+    
+    section_count = 1
+    text_section_offset = header_size + (section_count * section_header_size)
+    
+    header = struct.pack(HEADER_FORMAT, MAGIC, VERSION, ARCHITECTURE_I386, section_count, FLAGS)
+    
+    # KEF2_SECTION_TEXT = 1
+    KEF2_SECTION_TEXT = 1
+    sec_header = struct.pack(SECTION_HEADER_FORMAT, KEF2_SECTION_TEXT, text_section_offset, payload_size)
+    
     print(f"[+] İşlenen Binary: {input_bin}")
-    print(f"[+] Tespit edilen _start adresi: 0x{entry_address:X}")
-    print(f"[+] Hesaplanan entry offset: 0x{entry_offset:X}")
-    print(f"[+] Gerçek Payload Boyutu: {payload_size} bytes")
-    print(f"[+] Header Boyutu: {header_size} bytes")
-    print(f"[+] Toplam KEF Boyutu (Header + Payload): {header_size + payload_size} bytes")
-    
-    flags = 0
-    
-    header = struct.pack(
-        HEADER_FORMAT,
-        MAGIC,
-        VERSION,
-        ARCH_I386,
-        entry_offset,
-        payload_size,
-        flags,
-        header_size
-    )
+    print(f"[+] KEFv2 Paketleme: Section Count = {section_count}, Header Boyutu = {header_size} bytes, Payload Boyutu = {payload_size} bytes")
     
     with open(output_kef, "wb") as f:
         f.write(header)
+        f.write(sec_header)
         f.write(payload)
         
-    print(f"[+] Başarıyla paketlendi: {output_kef}\\n")
+    print(f"[+] Başarıyla KEFv2 formatında paketlendi: {output_kef}\\n")
 
 if __name__ == "__main__":
     if len(sys.argv) < 4:
-        print("Kullanım: python3 kef_format.py <input.bin> <output.kef> <input.elf>")
+        print("Kullanım: python3 kef2_format.py <input.bin> <output.kef> <input.elf>")
         sys.exit(1)
         
-    format_kef(sys.argv[1], sys.argv[2], sys.argv[3])
+    format_kef2(sys.argv[1], sys.argv[2], sys.argv[3])
 """
 
 def ensure_kry_sdk_on_build():
-    """Derleme aşamasında ~/.kry/ ortamının ve gerekli dosyaların eksiksiz olduğunu doğrular, yoksa oluşturur."""
+    """Derleme aşamasında ~/.kry/ ortamının ve gerekli KEFv2 dosyalarının eksiksiz olduğunu doğrular."""
     kry_home = os.path.expanduser("~/.kry")
     kry_include = os.path.join(kry_home, "include")
-    api_header_path = os.path.join(kry_include, "kef_api.h")
+    api_header_path = os.path.join(kry_include, "kef2_api.h")
     linker_path = os.path.join(kry_home, "linker.ld")
-    kef_format_py_path = os.path.join(kry_home, "kef_format.py")
+    kef_format_py_path = os.path.join(kry_home, "kef2_format.py")
     
     os.makedirs(kry_include, exist_ok=True)
     
-    # Eğer başlık dosyası yoksa veya içinde vfs_file_info_t eksikse güncel şablonu yaz
     need_write = True
     if os.path.exists(api_header_path):
         with open(api_header_path, "r", encoding="utf-8") as f:
             content = f.read()
-            if "vfs_file_info_t" in content:
+            if "vfs_file_info_t" in content and "KEF2_API_H" in content:
                 need_write = False
 
     if need_write:
         print(f"[*] Uyarı: '{api_header_path}' eksik veya güncel değil. Yeniden oluşturuluyor...")
         with open(api_header_path, "w", encoding="utf-8") as f:
-            f.write(DEFAULT_KEF_API_H)
-        print(f"[✔] SDK başlık dosyası güncellendi.")
+            f.write(DEFAULT_KEF2_API_H)
+        print(f"[✔] KEFv2 SDK başlık dosyası güncellendi.")
         
     if not os.path.exists(linker_path):
         print(f"[*] Uyarı: '{linker_path}' bulunamadı. Oluşturuluyor...")
@@ -232,11 +207,11 @@ def ensure_kry_sdk_on_build():
     if not os.path.exists(kef_format_py_path):
         print(f"[*] Uyarı: '{kef_format_py_path}' bulunamadı. Oluşturuluyor...")
         with open(kef_format_py_path, "w", encoding="utf-8") as f:
-            f.write(KEF_FORMAT_PY_TEMPLATE)
-        print(f"[✔] Paketleme betiği oluşturuldu.")
+            f.write(KEF2_FORMAT_PY_TEMPLATE)
+        print(f"[✔] KEFv2 paketleme betiği oluşturuldu.")
 
 def build_app(args):
-    print("[*] KryonOS C uygulaması derleniyor...")
+    print("[*] KryonOS C uygulaması KEFv2 formatında derleniyor...")
     
     target_dir = args.dir if hasattr(args, 'dir') and args.dir else "."
     if not os.path.exists(target_dir):
@@ -315,7 +290,7 @@ def build_app(args):
     target_bin = os.path.join(build_dir, f"{app_name}.bin")
     target_kef = os.path.join(target_dir, f"{app_name}.kef")
 
-    format_script = os.path.expanduser("~/.kry/kef_format.py")
+    format_script = os.path.expanduser("~/.kry/kef2_format.py")
 
     try:
         print(f"[*] Çalıştırılıyor: {compiler} (C Derleme)")
@@ -329,7 +304,7 @@ def build_app(args):
         print("[*] Çalıştırılıyor: objcopy (Binary Çıkartma)")
         subprocess.run(["objcopy", "-O", "binary", target_elf, target_bin], check=True)
 
-        print("[*] Çalıştırılıyor: kef_format paketleme")
+        print("[*] Çalıştırılıyor: kef2_format paketleme")
         if os.path.exists(format_script):
             pack_cmd = ["python3", format_script, target_bin, target_kef, target_elf]
             subprocess.run(pack_cmd, check=True)
@@ -337,7 +312,7 @@ def build_app(args):
             print(f"[-] Hata: '{format_script}' bulunamadı!")
             sys.exit(1)
 
-        print(f"[+] Başarılı! Derlenen KEF: {target_kef}")
+        print(f"[+] Başarılı! Derlenen KEFv2: {target_kef}")
 
     except subprocess.CalledProcessError as e:
         print(f"[-] Derleme sırasında hata oluştu (Exit Code: {e.returncode}): {e}")
