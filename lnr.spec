@@ -30,7 +30,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='kry',
+    name='lnr',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

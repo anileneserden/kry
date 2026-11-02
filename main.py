@@ -17,7 +17,7 @@ PROJECT_BUILDERS = {
     "app-gui": build_gui.build_app
 }
 
-CONFIG_FILE = os.path.expanduser("~/.kry/config.json")
+CONFIG_FILE = os.path.expanduser("~/.lnr/config.json")
 
 def load_config():
     if os.path.exists(CONFIG_FILE):
@@ -90,7 +90,7 @@ def cmd_settings(args):
     config = load_config()
     current_editor = config.get("editor", "vscode")
 
-    print("\033[1;33m--- KuvixOS SDK (kry) Ayarları ---\033[0m")
+    print("\033[1;33m--- LenorOS SDK (lnr) Ayarları ---\033[0m")
     available_editors = ["vscode", "cursor", "sublime", "nano", "yok"]
     
     print(f"Mevcut Varsayılan Editör: \033[1m{current_editor}\033[0m")
@@ -129,7 +129,7 @@ def cmd_init(args):
         target_dir = input(f"\033[1;36mHedef dizin [{default_dir}]:\033[0m ").strip() or default_dir
 
     author = args.author
-    if author == "Kuvix Developer":
+    if author == "Lenor Developer":
         user_author = input(f"\033[1;36mYazar adı [{author}]:\033[0m ").strip()
         if user_author:
             author = user_author
@@ -159,14 +159,14 @@ def cmd_build(args):
     PROJECT_BUILDERS[app_type](args)
 
 def main():
-    parser = argparse.ArgumentParser(description="KuvixOS SDK CLI (kry)")
+    parser = argparse.ArgumentParser(description="LenorOS SDK CLI (lnr)")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     parser_init = subparsers.add_parser("init", help="Yeni bir uygulama iskeleti oluşturur.")
     parser_init.add_argument("-t", "--type", choices=list(PROJECT_CREATORS.keys()), help="Uygulama tipi")
     parser_init.add_argument("-n", "--name", help="Uygulama adı")
     parser_init.add_argument("-d", "--dir", help="Hedef dizin")
-    parser_init.add_argument("-a", "--author", default="Kuvix Developer", help="Yazar adı")
+    parser_init.add_argument("-a", "--author", default="Lenor Developer", help="Yazar adı")
     parser_init.add_argument("-v", "--version", default="1.0.0", help="Uygulama sürümü")
     parser_init.add_argument("-e", "--editor", help="Editör yapılandırma tipi")
     parser_init.set_defaults(func=cmd_init)
@@ -178,7 +178,7 @@ def main():
     parser_build.add_argument("-c", "--clean", action="store_true", help="Build klasörünü temizleyip sıfırdan derler")
     parser_build.set_defaults(func=cmd_build)
 
-    parser_settings = subparsers.add_parser("settings", help="KuvixOS SDK global ayarlarını yönetir.")
+    parser_settings = subparsers.add_parser("settings", help="LenorOS SDK global ayarlarını yönetir.")
     parser_settings.set_defaults(func=cmd_settings)
 
     args = parser.parse_args()
