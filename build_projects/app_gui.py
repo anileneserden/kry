@@ -17,6 +17,11 @@ DEFAULT_LEX2_API_H = """#ifndef LEX2_API_H
 #define ANCHOR_TOP    (1 << 2)
 #define ANCHOR_BOTTOM (1 << 3)
 
+// Picturebox Boyutlandırma Modları
+#define SIZE_MODE_NORMAL   0
+#define SIZE_MODE_STRETCH  1
+#define SIZE_MODE_FIT      2
+
 typedef struct __attribute__((packed)) {
     char name[32];
     uint32_t size;
@@ -26,13 +31,13 @@ typedef struct __attribute__((packed)) {
 #define LEX_API_TABLE ((struct lex_api_table_t*)0x501000)
 
 struct lex_api_table_t {
-    int (*window_create)(const char* title, int width, int height);
+    int (*window_create)(const char* title, int width, int height, bool resizable);
     void (*print)(const char* str);
     void (*exit)(void);
     int (*label_create)(int x, int y, uint32_t color, const char* text, uint8_t anchor);
     int (*panel_create)(int x, int y, int w, int h, uint32_t color, uint32_t hover_color, void (*on_click)(void), void (*on_hover)(void), uint8_t anchor);
     int (*button_create)(int x, int y, int w, int h, uint32_t bg_color, uint32_t text_color, const char* text, void (*on_click)(void), uint8_t anchor);
-    int (*picturebox_create)(int x, int y, int w, int h, const char* img_path, uint8_t anchor);
+    int (*picturebox_create)(int x, int y, int w, int h, const char* img_path, uint8_t anchor, int size_mode);
     int (*input_create)(int x, int y, int w, int h, 
                         const char* text, const char* placeholdertext, 
                         uint32_t backcolor, uint32_t color, 
@@ -51,10 +56,22 @@ struct lex_api_table_t {
     void (*reboot_system)(void);
     void (*shutdown_system)(void);
     bool (*is_key_pressed)(int key_code);
+    int (*browser_create)(int x, int y, int w, int h, uint8_t anchor);
+    void (*browser_load_html)(const char* html);
 };
 
-// Inline Sarmalayıcılar (Wrappers)
-static inline int lex_window_create(const char* t, int w, int h) { return LEX_API_TABLE->window_create(t, w, h); }
+// Window Create Aşırı Yükleme (Overloading) Destekli Sarmalayıcılar
+static inline int _lex_window_create_4(const char* t, int w, int h, bool resizable) { 
+    return LEX_API_TABLE->window_create(t, w, h, resizable); 
+}
+
+static inline int _lex_window_create_3(const char* t, int w, int h) { 
+    return LEX_API_TABLE->window_create(t, w, h, true); 
+}
+
+#define _LEX_WIN_CHOOSER(_1, _2, _3, _4, CHOICE, ...) CHOICE
+#define lex_window_create(...) _LEX_WIN_CHOOSER(__VA_ARGS__, _lex_window_create_4, _lex_window_create_3)(__VA_ARGS__)
+
 static inline void lex_print(const char* s) { LEX_API_TABLE->print(s); }
 static inline void lex_exit(void) { LEX_API_TABLE->exit(); }
 
@@ -67,8 +84,30 @@ static inline int button(int x, int y, int w, int h, uint32_t bg, uint32_t fg, c
     return LEX_API_TABLE->button_create(x, y, w, h, bg, fg, t, click, a); 
 }
 
-static inline int picturebox(int x, int y, int w, int h, const char* img_path, uint8_t anchor) {
-    return LEX_API_TABLE->picturebox_create(x, y, w, h, img_path, anchor);
+// Picturebox Aşırı Yükleme (Overloading) Destekli Sarmalayıcılar
+static inline int _picturebox_7(int x, int y, int w, int h, const char* img_path, uint8_t anchor, int size_mode) {
+    return LEX_API_TABLE->picturebox_create(x, y, w, h, img_path, anchor, size_mode);
+}
+
+static inline int _picturebox_6(int x, int y, int w, int h, const char* img_path, uint8_t anchor) {
+    return LEX_API_TABLE->picturebox_create(x, y, w, h, img_path, anchor, SIZE_MODE_STRETCH);
+}
+
+#define _PICTUREBOX_CHOOSER(_1, _2, _3, _4, _5, _6, _7, CHOICE, ...) CHOICE
+#define picturebox(...) _PICTUREBOX_CHOOSER(__VA_ARGS__, _picturebox_7, _picturebox_6)(__VA_ARGS__)
+
+static inline int input_create(int x, int y, int w, int h, 
+                                const char* text, const char* placeholdertext, 
+                                uint32_t backcolor, uint32_t color, 
+                                uint32_t placeholder_color, uint32_t border_color, 
+                                int border_thickness, uint8_t anchor) {
+    return LEX_API_TABLE->input_create(x, y, w, h, text, placeholdertext, 
+                                       backcolor, color, placeholder_color, 
+                                       border_color, border_thickness, anchor);
+}
+
+static inline int input_get_text(int input_id, char* out_buf, int max_len) {
+    return LEX_API_TABLE->input_get_text(input_id, out_buf, max_len);
 }
 
 static inline int lex_combobox_create(int x, int y, int w, int h, const char** items, int count, int def_idx, uint32_t bg, uint32_t fg, uint32_t border, uint8_t a) {
@@ -85,10 +124,22 @@ static inline void* lex_read_file(const char* path, uint32_t* size) {
 static inline size_t lex_strlen(const char* str) { return LEX_API_TABLE->strlen(str); }
 static inline int lex_strcmp(const char* s1, const char* s2) { return LEX_API_TABLE->strcmp(s1, s2); }
 
+static inline void yield(void) { LEX_API_TABLE->yield(); }
+
 static inline void backgroundColor(uint32_t color) { LEX_API_TABLE->background_color(color); }
 static inline void background_color(uint32_t color) { LEX_API_TABLE->background_color(color); }
 
-static inline bool is_key_pressed(int key_code) { return LEX_API_TABLE->is_key_pressed(key_code); }
+static inline bool is_key_pressed(int key_code) { 
+    return LEX_API_TABLE->is_key_pressed(key_code); 
+}
+
+static inline int browser_create(int x, int y, int w, int h, uint8_t anchor) {
+    return LEX_API_TABLE->browser_create(x, y, w, h, anchor);
+}
+
+static inline void browser_load_html(const char* html) {
+    LEX_API_TABLE->browser_load_html(html);
+}
 
 #endif
 """
@@ -126,8 +177,8 @@ import struct
 import os
 
 def format_lex2(input_bin, output_lex, input_elf):
-    MAGIC = 0x0058454C
-    VERSION = 1
+    MAGIC = 0x3258454C
+    VERSION = 2
     ARCHITECTURE_I386 = 1
     FLAGS = 0
     
@@ -151,23 +202,30 @@ def format_lex2(input_bin, output_lex, input_elf):
     resources_payload = bytearray()
     
     if os.path.exists(resources_dir_path) and os.path.isdir(resources_dir_path):
-        print(f"[*] Kaynak dizini taranior: {resources_dir_path}")
-        for filename in os.listdir(resources_dir_path):
-            file_full_path = os.path.join(resources_dir_path, filename)
-            if os.path.isfile(file_full_path):
+        print(f"[*] Kaynak dizini rekürsif olarak taranıyor: {resources_dir_path}")
+        
+        # os.walk ile tüm alt klasörleri ve dosyaları tek tek geziyoruz
+        for root, dirs, files in os.walk(resources_dir_path):
+            for filename in files:
+                file_full_path = os.path.join(root, filename)
+                
+                # resources/ klasörüne göreceli (relative) yolu buluyoruz 
+                # (Örn: blocks/blue_block/blue_block.png)
+                rel_path = os.path.relpath(file_full_path, output_dir)
+                # Windows/Linux yol ayrımı uyumluluğu için ters eğik çizgileri düzeltelim
+                stored_name = rel_path.replace(os.sep, "/")
+                
                 with open(file_full_path, "rb") as rf:
                     file_data = rf.read()
-                
-                stored_name = f"resources/{filename}"
                 
                 resource_entries.append({
                     "name": stored_name,
                     "data": file_data,
                     "size": len(file_data)
                 })
-                print(f"  [+] Kaynak bulundu ve yuklendi: {stored_name} ({len(file_data)} bytes)")
+                print(f"  [+] Kaynak bulundu ve yüklendi: {stored_name} ({len(file_data)} bytes)")
     else:
-        print(f"[*] Bilgi: '{resources_dir_path}' klasoru bulunamadi, kaynak eklenmeyecek.")
+        print(f"[*] Bilgi: '{resources_dir_path}' klasörü bulunamadı, kaynak eklenmeyecek.")
 
     section_count = 2 if resource_entries else 1
     
