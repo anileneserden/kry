@@ -85,6 +85,7 @@ typedef struct __attribute__((packed)) {
 
 struct lex_api_table_t {
     int (*window_create)(const char* title, int width, int height, bool resizable);
+    void* (*window_create_with_tabs)(int width, int height, const char* title, int initial_tab_count);
     void (*print)(const char* str);
     void (*exit)(void);
     int (*label_create)(int x, int y, uint32_t color, const char* text, uint8_t anchor);
@@ -95,7 +96,7 @@ struct lex_api_table_t {
                         const char* text, const char* placeholdertext, 
                         uint32_t backcolor, uint32_t color, 
                         uint32_t placeholder_color, uint32_t border_color, 
-                        int border_thickness, uint8_t anchor);
+                        int border_thickness, void (*on_key)(char c), uint8_t anchor);
     int (*input_get_text)(int input_id, char* out_buf, int max_len);
     int (*combobox_create)(int x, int y, int w, int h, const char** items, int item_count, int default_index, uint32_t bg_color, uint32_t text_color, uint32_t border_color, uint8_t anchor);
     int (*get_directory_files)(const char* full_path, vfs_file_info_t* out_list, int max_count);
@@ -111,6 +112,7 @@ struct lex_api_table_t {
     bool (*is_key_pressed)(int key_code);
     int (*browser_create)(int x, int y, int w, int h, uint8_t anchor);
     void (*browser_load_html)(const char* html);
+    void (*set_tab_icon_from_memory)(const void* ico_data, uint32_t ico_size);
 };
 
 // Window Create Aşırı Yükleme (Overloading) Destekli Sarmalayıcılar
@@ -124,6 +126,13 @@ static inline int _lex_window_create_3(const char* t, int w, int h) {
 
 #define _LEX_WIN_CHOOSER(_1, _2, _3, _4, CHOICE, ...) CHOICE
 #define lex_window_create(...) _LEX_WIN_CHOOSER(__VA_ARGS__, _lex_window_create_4, _lex_window_create_3)(__VA_ARGS__)
+
+static inline void* lex_window_create_with_tabs(const char* title, int width, int height, int tab_count) {
+    if (LEX_API_TABLE->window_create_with_tabs) {
+        return LEX_API_TABLE->window_create_with_tabs(width, height, title, tab_count);
+    }
+    return 0;
+}
 
 static inline void lex_print(const char* s) { LEX_API_TABLE->print(s); }
 static inline void lex_exit(void) { LEX_API_TABLE->exit(); }
@@ -153,10 +162,10 @@ static inline int input_create(int x, int y, int w, int h,
                                 const char* text, const char* placeholdertext, 
                                 uint32_t backcolor, uint32_t color, 
                                 uint32_t placeholder_color, uint32_t border_color, 
-                                int border_thickness, uint8_t anchor) {
+                                int border_thickness, void (*on_key)(char c), uint8_t anchor) {
     return LEX_API_TABLE->input_create(x, y, w, h, text, placeholdertext, 
                                        backcolor, color, placeholder_color, 
-                                       border_color, border_thickness, anchor);
+                                       border_color, border_thickness, on_key, anchor);
 }
 
 static inline int input_get_text(int input_id, char* out_buf, int max_len) {
@@ -192,6 +201,12 @@ static inline int browser_create(int x, int y, int w, int h, uint8_t anchor) {
 
 static inline void browser_load_html(const char* html) {
     LEX_API_TABLE->browser_load_html(html);
+}
+
+static inline void lex_set_tab_icon_from_memory(const void* ico_data, uint32_t ico_size) {
+    if (LEX_API_TABLE->set_tab_icon_from_memory) {
+        LEX_API_TABLE->set_tab_icon_from_memory(ico_data, ico_size);
+    }
 }
 
 #endif
