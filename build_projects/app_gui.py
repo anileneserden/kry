@@ -36,6 +36,7 @@ struct lex_api_table_t {
     void (*print)(const char* str);
     void (*exit)(void);
     int (*label_create)(int x, int y, uint32_t color, const char* text, uint8_t anchor);
+    int (*label_create_ex)(int x, int y, uint32_t color, const char* text, uint8_t anchor, uint8_t font_size);
     int (*panel_create)(int x, int y, int w, int h, uint32_t color, uint32_t hover_color, void (*on_click)(void), void (*on_hover)(void), uint8_t anchor);
     int (*button_create)(int x, int y, int w, int h, uint32_t bg_color, uint32_t text_color, const char* text, void (*on_click)(void), uint8_t anchor);
     int (*picturebox_create)(int x, int y, int w, int h, const char* img_path, uint8_t anchor, int size_mode);
@@ -84,7 +85,21 @@ static inline void* lex_window_create_with_tabs(const char* title, int width, in
 static inline void lex_print(const char* s) { LEX_API_TABLE->print(s); }
 static inline void lex_exit(void) { LEX_API_TABLE->exit(); }
 
-static inline int label(int x, int y, uint32_t c, const char* t, uint8_t a) { return LEX_API_TABLE->label_create(x, y, c, t, a); }
+// Label Aşırı Yükleme (Overloading) Destekli Sarmalayıcılar
+static inline int _label_6(int x, int y, uint32_t c, const char* t, uint8_t a, uint8_t size) {
+    if (LEX_API_TABLE->label_create_ex) {
+        return LEX_API_TABLE->label_create_ex(x, y, c, t, a, size);
+    }
+    return LEX_API_TABLE->label_create(x, y, c, t, a);
+}
+
+static inline int _label_5(int x, int y, uint32_t c, const char* t, uint8_t a) {
+    return LEX_API_TABLE->label_create(x, y, c, t, a);
+}
+
+#define _LABEL_CHOOSER(_1, _2, _3, _4, _5, _6, CHOICE, ...) CHOICE
+#define label(...) _LABEL_CHOOSER(__VA_ARGS__, _label_6, _label_5)(__VA_ARGS__)
+
 static inline int panel(int x, int y, int w, int h, uint32_t c, uint8_t a) { return LEX_API_TABLE->panel_create(x, y, w, h, c, c, 0, 0, a); }
 static inline int lex_panel_create(int x, int y, int w, int h, uint32_t c, uint32_t hc, void (*click)(void), void (*hover)(void), uint8_t a) { 
     return LEX_API_TABLE->panel_create(x, y, w, h, c, hc, click, hover, a); 
@@ -117,6 +132,10 @@ static inline int input_create(int x, int y, int w, int h,
 
 static inline int input_get_text(int input_id, char* out_buf, int max_len) {
     return LEX_API_TABLE->input_get_text(input_id, out_buf, max_len);
+}
+
+static inline int combobox_create(int x, int y, int w, int h, const char** items, int item_count, int default_index, uint32_t bg_color, uint32_t text_color, uint32_t border_color, uint8_t anchor) {
+    return LEX_API_TABLE->combobox_create(x, y, w, h, items, item_count, default_index, bg_color, text_color, border_color, anchor);
 }
 
 static inline int lex_combobox_create(int x, int y, int w, int h, const char** items, int count, int def_idx, uint32_t bg, uint32_t fg, uint32_t border, uint8_t a) {
@@ -317,8 +336,8 @@ def ensure_lnr_sdk_on_build():
     if os.path.exists(api_header_path):
         with open(api_header_path, "r", encoding="utf-8") as f:
             content = f.read()
-            # Eğer şablondaki tüm anahtar kelimeler ve yeni picturebox_create mevcutsa tekrar yazma
-            if "vfs_file_info_t" in content and "LEX2_API_H" in content and "picturebox_create" in content:
+            # Eğer şablondaki anahtar kelimeler, picturebox ve browser fonksiyonları mevcutsa tekrar yazma
+            if "vfs_file_info_t" in content and "LEX2_API_H" in content and "picturebox_create" in content and "browser_create" in content and "browser_load_html" in content:
                 need_write_api = False
 
     if need_write_api:
