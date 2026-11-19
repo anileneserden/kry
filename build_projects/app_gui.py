@@ -1,380 +1,375 @@
+import ast
+import json
 import os
+import shutil
 import subprocess
 import sys
-import shutil
-import json
 
-# LEXv2 SDK ve format betiği şablonları (Eğer silindiyse otomatik yeniden oluşturmak için)
-DEFAULT_LEX2_API_H = """#ifndef LEX2_API_H
-#define LEX2_API_H
-
-#include <stdint.h>
-#include <stdbool.h>
-#include <stddef.h>
-
-#define ANCHOR_LEFT   (1 << 0)
-#define ANCHOR_RIGHT  (1 << 1)
-#define ANCHOR_TOP    (1 << 2)
-#define ANCHOR_BOTTOM (1 << 3)
-
-// Picturebox Boyutlandırma Modları
-#define SIZE_MODE_NORMAL   0
-#define SIZE_MODE_STRETCH  1
-#define SIZE_MODE_FIT      2
-
-typedef struct __attribute__((packed)) {
-    char name[32];
-    uint32_t size;
-    bool is_directory;
-} vfs_file_info_t;
-
-#define LEX_API_TABLE ((struct lex_api_table_t*)0x501000)
-
-struct lex_api_table_t {
-    int (*window_create)(const char* title, int width, int height, bool resizable);
-    void* (*window_create_with_tabs)(int width, int height, const char* title, int initial_tab_count);
-    void (*print)(const char* str);
-    void (*exit)(void);
-    int (*label_create)(int x, int y, uint32_t color, const char* text, uint8_t anchor);
-    int (*label_create_ex)(int x, int y, uint32_t color, const char* text, uint8_t anchor, uint8_t font_size);
-    int (*panel_create)(int x, int y, int w, int h, uint32_t color, uint32_t hover_color, void (*on_click)(void), void (*on_hover)(void), uint8_t anchor);
-    int (*button_create)(int x, int y, int w, int h, uint32_t bg_color, uint32_t text_color, const char* text, void (*on_click)(void), uint8_t anchor);
-    int (*picturebox_create)(int x, int y, int w, int h, const char* img_path, uint8_t anchor, int size_mode);
-    int (*input_create)(int x, int y, int w, int h, 
-                        const char* text, const char* placeholdertext, 
-                        uint32_t backcolor, uint32_t color, 
-                        uint32_t placeholder_color, uint32_t border_color, 
-                        int border_thickness, void (*on_key)(char c), uint8_t anchor);
-    int (*input_get_text)(int input_id, char* out_buf, int max_len);
-    int (*input_set_text)(int input_id, const char* text);
-    int (*combobox_create)(int x, int y, int w, int h, const char** items, int item_count, int default_index, uint32_t bg_color, uint32_t text_color, uint32_t border_color, uint8_t anchor);
-    int (*get_directory_files)(const char* full_path, vfs_file_info_t* out_list, int max_count);
-    void* (*read_file)(const char* full_path, uint32_t* out_size);
-    int (*strcmp)(const char* s1, const char* s2);
-    size_t (*strlen)(const char* str);
-    void (*yield)(void);
-    uint32_t* (*canvas_create)(int x, int y, int w, int h, uint8_t anchor, int* out_canvas_id);
-    void (*canvas_update_buffer)(int canvas_id);
-    void (*background_color)(uint32_t color);
-    void (*reboot_system)(void);
-    void (*shutdown_system)(void);
-    bool (*is_key_pressed)(int key_code);
-    int (*browser_create)(int x, int y, int w, int h, uint8_t anchor);
-    void (*browser_load_html)(const char* html);
-    void (*set_tab_icon_from_memory)(const void* ico_data, uint32_t ico_size);
-};
-
-// Window Create Aşırı Yükleme (Overloading) Destekli Sarmalayıcılar
-static inline int _lex_window_create_4(const char* t, int w, int h, bool resizable) { 
-    return LEX_API_TABLE->window_create(t, w, h, resizable); 
+# Python `from lex2 import ...` sembollerinin C karşılıkları
+LEX2_SYMBOL_MAP = {
+    # Sabitler
+    "ANCHOR_LEFT": "ANCHOR_LEFT",
+    "ANCHOR_RIGHT": "ANCHOR_RIGHT",
+    "ANCHOR_TOP": "ANCHOR_TOP",
+    "ANCHOR_BOTTOM": "ANCHOR_BOTTOM",
+    "SIZE_MODE_NORMAL": "SIZE_MODE_NORMAL",
+    "SIZE_MODE_STRETCH": "SIZE_MODE_STRETCH",
+    "SIZE_MODE_FIT": "SIZE_MODE_FIT",
+    # Doğrudan çağrılar
+    "window_create": "lex_window_create",
+    "window_create_with_tabs": "lex_window_create_with_tabs",
+    "print_log": "lex_print",
+    "exit_app": "lex_exit",
+    "label": "label",
+    "panel": "panel",
+    "panel_ex": "panel_ex",
+    "button": "button",
+    "picturebox": "picturebox",
+    "input_create": "input_create",
+    "input_set_text": "input_set_text",
+    "background_color": "background_color",
+    "browser_create": "browser_create",
+    "browser_load_html": "browser_load_html",
+    "yield_cpu": "yield",
 }
 
-static inline int _lex_window_create_3(const char* t, int w, int h) { 
-    return LEX_API_TABLE->window_create(t, w, h, true); 
-}
-
-#define _LEX_WIN_CHOOSER(_1, _2, _3, _4, CHOICE, ...) CHOICE
-#define lex_window_create(...) _LEX_WIN_CHOOSER(__VA_ARGS__, _lex_window_create_4, _lex_window_create_3)(__VA_ARGS__)
-
-static inline void* lex_window_create_with_tabs(const char* title, int width, int height, int tab_count) {
-    if (LEX_API_TABLE->window_create_with_tabs) {
-        return LEX_API_TABLE->window_create_with_tabs(width, height, title, tab_count);
-    }
-    return 0;
-}
-
-static inline void lex_print(const char* s) { LEX_API_TABLE->print(s); }
-static inline void lex_exit(void) { LEX_API_TABLE->exit(); }
-
-// Label Aşırı Yükleme (Overloading) Destekli Sarmalayıcılar
-static inline int _label_6(int x, int y, uint32_t c, const char* t, uint8_t a, uint8_t size) {
-    if (LEX_API_TABLE->label_create_ex) {
-        return LEX_API_TABLE->label_create_ex(x, y, c, t, a, size);
-    }
-    return LEX_API_TABLE->label_create(x, y, c, t, a);
-}
-
-static inline int _label_5(int x, int y, uint32_t c, const char* t, uint8_t a) {
-    return LEX_API_TABLE->label_create(x, y, c, t, a);
-}
-
-#define _LABEL_CHOOSER(_1, _2, _3, _4, _5, _6, CHOICE, ...) CHOICE
-#define label(...) _LABEL_CHOOSER(__VA_ARGS__, _label_6, _label_5)(__VA_ARGS__)
-
-// Normal panel (Hover özelliği istemeyen yerler için)
-static inline int panel(int x, int y, int w, int h, uint32_t c, uint8_t a) { 
-    return LEX_API_TABLE->panel_create(x, y, w, h, c, c, 0, 0, a); 
-}
-
-// Gelişmiş panel: Normal renk, Hover rengi ve Tıklama/Hover eventleri alabilir!
-static inline int panel_ex(int x, int y, int w, int h, uint32_t c, uint32_t hc, void (*click)(void), void (*hover)(void), uint8_t a) { 
-    return LEX_API_TABLE->panel_create(x, y, w, h, c, hc, click, hover, a); 
-}
-
-static inline int button(int x, int y, int w, int h, uint32_t bg, uint32_t fg, const char* t, void (*click)(void), uint8_t a) { 
-    return LEX_API_TABLE->button_create(x, y, w, h, bg, fg, t, click, a); 
-}
-
-// Picturebox Aşırı Yükleme (Overloading) Destekli Sarmalayıcılar
-static inline int _picturebox_7(int x, int y, int w, int h, const char* img_path, uint8_t anchor, int size_mode) {
-    return LEX_API_TABLE->picturebox_create(x, y, w, h, img_path, anchor, size_mode);
-}
-
-static inline int _picturebox_6(int x, int y, int w, int h, const char* img_path, uint8_t anchor) {
-    return LEX_API_TABLE->picturebox_create(x, y, w, h, img_path, anchor, SIZE_MODE_STRETCH);
-}
-
-#define _PICTUREBOX_CHOOSER(_1, _2, _3, _4, _5, _6, _7, CHOICE, ...) CHOICE
-#define picturebox(...) _PICTUREBOX_CHOOSER(__VA_ARGS__, _picturebox_7, _picturebox_6)(__VA_ARGS__)
-
-static inline int input_create(int x, int y, int w, int h, 
-                                const char* text, const char* placeholdertext, 
-                                uint32_t backcolor, uint32_t color, 
-                                uint32_t placeholder_color, uint32_t border_color, 
-                                int border_thickness, void (*on_key)(char c), uint8_t anchor) {
-    return LEX_API_TABLE->input_create(x, y, w, h, text, placeholdertext, 
-                                       backcolor, color, placeholder_color, 
-                                       border_color, border_thickness, on_key, anchor);
-}
-
-static inline int input_get_text(int input_id, char* out_buf, int max_len) {
-    return LEX_API_TABLE->input_get_text(input_id, out_buf, max_len);
-}
-
-static inline int input_set_text(int input_id, const char* text) {
-    return LEX_API_TABLE->input_set_text(input_id, text);
-}
-
-static inline int combobox_create(int x, int y, int w, int h, const char** items, int item_count, int default_index, uint32_t bg_color, uint32_t text_color, uint32_t border_color, uint8_t anchor) {
-    return LEX_API_TABLE->combobox_create(x, y, w, h, items, item_count, default_index, bg_color, text_color, border_color, anchor);
-}
-
-static inline int lex_combobox_create(int x, int y, int w, int h, const char** items, int count, int def_idx, uint32_t bg, uint32_t fg, uint32_t border, uint8_t a) {
-    return LEX_API_TABLE->combobox_create(x, y, w, h, items, count, def_idx, bg, fg, border, a);
-}
-
-static inline int lex_get_directory_files(const char* path, vfs_file_info_t* list, int max) { 
-    return LEX_API_TABLE->get_directory_files(path, list, max); 
-}
-static inline void* lex_read_file(const char* path, uint32_t* size) { 
-    return LEX_API_TABLE->read_file(path, size); 
-}
-
-static inline size_t lex_strlen(const char* str) { return LEX_API_TABLE->strlen(str); }
-static inline int lex_strcmp(const char* s1, const char* s2) { return LEX_API_TABLE->strcmp(s1, s2); }
-
-static inline void yield(void) { LEX_API_TABLE->yield(); }
-
-static inline void backgroundColor(uint32_t color) { LEX_API_TABLE->background_color(color); }
-static inline void background_color(uint32_t color) { LEX_API_TABLE->background_color(color); }
-
-static inline bool is_key_pressed(int key_code) { 
-    return LEX_API_TABLE->is_key_pressed(key_code); 
-}
-
-static inline int browser_create(int x, int y, int w, int h, uint8_t anchor) {
-    return LEX_API_TABLE->browser_create(x, y, w, h, anchor);
-}
-
-static inline void browser_load_html(const char* html) {
-    LEX_API_TABLE->browser_load_html(html);
-}
-
-static inline void lex_set_tab_icon_from_memory(const void* ico_data, uint32_t ico_size) {
-    if (LEX_API_TABLE->set_tab_icon_from_memory) {
-        LEX_API_TABLE->set_tab_icon_from_memory(ico_data, ico_size);
-    }
-}
-
-#endif
-"""
-
-LINKER_LD_TEMPLATE = """ENTRY(_start)
-OUTPUT_FORMAT(elf32-i386)
-
-SECTIONS
-{
-    . = 0x400000;
-
-    .text : {
-        *(.text._start)
-        *(.text*)
-    }
-
-    .rodata : {
-        *(.rodata*)
-    }
-
-    .data : {
-        *(.data*)
-    }
-
-    .bss : {
-        *(.bss*)
-        *(COMMON)
-    }
+START_ASM_BLOCK = """__attribute__((section(".text._start"), naked)) void _start(void) {
+    __asm__ volatile (
+        "call main\\n\\t"
+        "ret\\n\\t"
+    );
 }
 """
 
-LEX2_FORMAT_PY_TEMPLATE = """#!/usr/bin/env python3
-import sys
-import struct
-import os
 
-def format_lex2(input_bin, output_lex, input_elf):
-    MAGIC = 0x3258454C
-    VERSION = 2
-    ARCHITECTURE_I386 = 1
-    FLAGS = 0
-    
-    if not os.path.exists(input_bin):
-        print(f"[-] Hata: Input binary dosyasi bulunamadi: {input_bin}")
-        sys.exit(1)
-        
-    if not os.path.exists(input_elf):
-        print(f"[-] Hata: Input ELF dosyasi bulunamadi: {input_elf}")
+class _PyToCTranspiler:
+    def __init__(self, filename: str):
+        self.filename = filename
+        self.imported_lex2: dict[str, str] = {}
+        self.temp_counter = 0
+
+    def _fresh_name(self, prefix: str) -> str:
+        self.temp_counter += 1
+        return f"_lnr_{prefix}_{self.temp_counter}"
+
+    def _err(self, node: ast.AST, msg: str) -> None:
+        line = getattr(node, "lineno", "?")
+        col = getattr(node, "col_offset", "?")
+        print(f"[-] Transpile hatasi ({self.filename}:{line}:{col}): {msg}")
         sys.exit(1)
 
-    with open(input_bin, "rb") as f:
-        payload = f.read()
-        
-    payload_size = len(payload)
-    
-    output_dir = os.path.dirname(os.path.abspath(output_lex))
-    resources_dir_path = os.path.join(output_dir, "resources")
-    
-    resource_entries = []
-    resources_payload = bytearray()
-    
-    if os.path.exists(resources_dir_path) and os.path.isdir(resources_dir_path):
-        print(f"[*] Kaynak dizini rekürsif olarak taranıyor: {resources_dir_path}")
-        
-        # os.walk ile tüm alt klasörleri ve dosyaları tek tek geziyoruz
-        for root, dirs, files in os.walk(resources_dir_path):
-            for filename in files:
-                file_full_path = os.path.join(root, filename)
-                
-                # resources/ klasörüne göreceli (relative) yolu buluyoruz 
-                # (Örn: blocks/blue_block/blue_block.png)
-                rel_path = os.path.relpath(file_full_path, output_dir)
-                # Windows/Linux yol ayrımı uyumluluğu için ters eğik çizgileri düzeltelim
-                stored_name = rel_path.replace(os.sep, "/")
-                
-                with open(file_full_path, "rb") as rf:
-                    file_data = rf.read()
-                
-                resource_entries.append({
-                    "name": stored_name,
-                    "data": file_data,
-                    "size": len(file_data)
-                })
-                print(f"  [+] Kaynak bulundu ve yüklendi: {stored_name} ({len(file_data)} bytes)")
-    else:
-        print(f"[*] Bilgi: '{resources_dir_path}' klasörü bulunamadı, kaynak eklenmeyecek.")
+    def _escape_c_str(self, s: str) -> str:
+        return (
+            s.replace("\\", "\\\\")
+            .replace('"', '\\"')
+            .replace("\n", "\\n")
+            .replace("\r", "\\r")
+            .replace("\t", "\\t")
+        )
 
-    section_count = 2 if resource_entries else 1
-    
-    HEADER_FORMAT = "<IHHII"
-    header_size = struct.calcsize(HEADER_FORMAT)
-    
-    SECTION_HEADER_FORMAT = "<III"
-    section_header_size = struct.calcsize(SECTION_HEADER_FORMAT)
-    
-    text_section_offset = header_size + (section_count * section_header_size)
-    text_section_size = payload_size
-    
-    current_offset = text_section_offset + text_section_size
-    
-    if resource_entries:
-        for res in resource_entries:
-            name_bytes = res["name"].encode('utf-8') + b'\\x00' if False else res["name"].encode('utf-8') + b'\\x00'.replace(b'\\\\x00', b'\\x00') # guvenli null byte
-            # Alternatif temiz null ekleme: res["name"].encode('utf-8') + b'\\x00' yerine dogrudan b'\\0'
-            name_bytes = res["name"].encode('utf-8') + b'\\x00'.replace(b'\\\\x00', b'\\x00')
-            
-            # Daha sade ve temiz hali:
-            name_bytes = res["name"].encode('utf-8') + b'\\0' # Python bunu dogru yorumlar
-            
-    if resource_entries:
-        for res in resource_entries:
-            resources_payload.extend(res["name"].encode('utf-8') + b'\\x00')
-            resources_payload.extend(struct.pack("<I", res["size"]))
-            resources_payload.extend(res["data"])
-            resources_payload.extend(b"IMGEND")
-    
-    header = struct.pack(HEADER_FORMAT, MAGIC, VERSION, ARCHITECTURE_I386, section_count, FLAGS)
-    
-    LEX2_SECTION_TEXT = 1
-    LEX2_SECTION_RESOURCES = 2
-    
-    print(f"[+] Islenen Binary: {input_bin}")
-    print(f"[+] LEXv2 Paketleme: Section Count = {section_count}, Kaynak Sayisi = {len(resource_entries)}")
-    
-    with open(output_lex, "wb") as f:
-        f.write(header)
-        f.write(struct.pack(SECTION_HEADER_FORMAT, LEX2_SECTION_TEXT, text_section_offset, text_section_size))
-        
-        if resource_entries:
-            res_section_offset = current_offset
-            res_section_size = len(resources_payload)
-            f.write(struct.pack(SECTION_HEADER_FORMAT, LEX2_SECTION_RESOURCES, res_section_offset, res_section_size))
-            
-        f.write(payload)
-        if resource_entries:
-            f.write(resources_payload)
-            
-    print(f"[+] Basariyla LEXv2 formatinda paketlendi: {output_lex}\\n")
+    def _infer_c_type(self, expr: ast.AST) -> str:
+        if isinstance(expr, ast.Constant):
+            if isinstance(expr.value, bool):
+                return "bool"
+            if isinstance(expr.value, int):
+                return "uint32_t" if expr.value > 0x7FFFFFFF else "int"
+            if isinstance(expr.value, str):
+                return "const char*"
+        if isinstance(expr, ast.UnaryOp) and isinstance(expr.op, ast.USub):
+            return "int"
+        if isinstance(expr, ast.Call) and isinstance(expr.func, ast.Name):
+            if expr.func.id == "read_file":
+                return "char*"
+            if expr.func.id == "input_get_text":
+                return "const char*"
+        return "int"
 
-if __name__ == "__main__":
-    if len(sys.argv) < 4:
-        print("Kullanim: python3 lex2_format.py <input.bin> <output.lex> <input.elf>")
-        sys.exit(1)
-        
-    format_lex2(sys.argv[1], sys.argv[2], sys.argv[3])
-"""
+    def _emit_expr(self, expr: ast.AST, pre_stmts: list[str]) -> str:
+        if isinstance(expr, ast.Constant):
+            if isinstance(expr.value, bool):
+                return "true" if expr.value else "false"
+            if isinstance(expr.value, int):
+                return hex(expr.value) if expr.value >= 0x10000 else str(expr.value)
+            if isinstance(expr.value, str):
+                return f'"{self._escape_c_str(expr.value)}"'
+            self._err(expr, f"Desteklenmeyen sabit deger: {type(expr.value).__name__}")
+
+        if isinstance(expr, ast.Name):
+            if expr.id in self.imported_lex2:
+                return self.imported_lex2[expr.id]
+            return expr.id
+
+        if isinstance(expr, ast.UnaryOp):
+            operand = self._emit_expr(expr.operand, pre_stmts)
+            if isinstance(expr.op, ast.USub):
+                return f"-({operand})"
+            if isinstance(expr.op, ast.Not):
+                return f"!({operand})"
+            self._err(expr, f"Desteklenmeyen tekli operator: {type(expr.op).__name__}")
+
+        if isinstance(expr, ast.BinOp):
+            left = self._emit_expr(expr.left, pre_stmts)
+            right = self._emit_expr(expr.right, pre_stmts)
+            op_map = {
+                ast.Add: "+",
+                ast.Sub: "-",
+                ast.Mult: "*",
+                ast.Div: "/",
+                ast.BitOr: "|",
+                ast.BitAnd: "&",
+                ast.BitXor: "^",
+                ast.LShift: "<<",
+                ast.RShift: ">>",
+            }
+            c_op = op_map.get(type(expr.op))
+            if not c_op:
+                self._err(expr, f"Desteklenmeyen ikili operator: {type(expr.op).__name__}")
+            return f"({left} {c_op} {right})"
+
+        if isinstance(expr, ast.Compare):
+            if len(expr.ops) != 1 or len(expr.comparators) != 1:
+                self._err(expr, "Zincirleme karsilastirmalar henuz desteklenmiyor.")
+            left = self._emit_expr(expr.left, pre_stmts)
+            right = self._emit_expr(expr.comparators[0], pre_stmts)
+            op = expr.ops[0]
+            if isinstance(op, ast.Eq):
+                return f"({left} == {right})"
+            if isinstance(op, ast.NotEq):
+                return f"({left} != {right})"
+            if isinstance(op, ast.Lt):
+                return f"({left} < {right})"
+            if isinstance(op, ast.LtE):
+                return f"({left} <= {right})"
+            if isinstance(op, ast.Gt):
+                return f"({left} > {right})"
+            if isinstance(op, ast.GtE):
+                return f"({left} >= {right})"
+            self._err(expr, f"Desteklenmeyen karsilastirma operatoru: {type(op).__name__}")
+
+        if isinstance(expr, ast.Call):
+            if not isinstance(expr.func, ast.Name):
+                self._err(expr, "Yalnizca dogrudan fonksiyon cagrilari destekleniyor.")
+            fn_name = expr.func.id
+
+            if fn_name in self.imported_lex2 and self.imported_lex2[fn_name] is None:
+                self._err(expr, f"'{fn_name}' bir sabit, fonksiyon degil.")
+
+            if fn_name == "input_get_text":
+                if len(expr.args) != 1:
+                    self._err(expr, "input_get_text(input_id) tam 1 arguman alir.")
+                inp_id = self._emit_expr(expr.args[0], pre_stmts)
+                buf_name = self._fresh_name("buf")
+                pre_stmts.append(f"char {buf_name}[256] = {{0}};")
+                pre_stmts.append(f"input_get_text({inp_id}, {buf_name}, sizeof({buf_name}));")
+                return buf_name
+
+            if fn_name == "read_file":
+                if len(expr.args) != 1:
+                    self._err(expr, "read_file(path) tam 1 arguman alir.")
+                path_expr = self._emit_expr(expr.args[0], pre_stmts)
+                sz_name = self._fresh_name("sz")
+                data_name = self._fresh_name("data")
+                pre_stmts.append(f"uint32_t {sz_name} = 0;")
+                pre_stmts.append(f"char* {data_name} = (char*)lex_read_file({path_expr}, &{sz_name});")
+                return data_name
+
+            c_fn = self.imported_lex2.get(fn_name, fn_name)
+            args_c = [self._emit_expr(a, pre_stmts) for a in expr.args]
+            return f"{c_fn}({', '.join(args_c)})"
+
+        self._err(expr, f"Desteklenmeyen ifade: {type(expr).__name__}")
+        return ""
+
+    def _emit_stmt(self, stmt: ast.stmt, indent: str, declared_locals: set[str], is_main: bool) -> list[str]:
+        lines: list[str] = []
+        pre: list[str] = []
+
+        if isinstance(stmt, ast.Global):
+            return []
+
+        if isinstance(stmt, ast.Pass):
+            return [f"{indent}/* pass */"]
+
+        if isinstance(stmt, ast.Return):
+            if stmt.value is None:
+                val = "0" if is_main else ""
+                lines.append(f"{indent}return {val};".strip())
+            else:
+                expr_c = self._emit_expr(stmt.value, pre)
+                lines.extend(f"{indent}{p}" for p in pre)
+                lines.append(f"{indent}return {expr_c};")
+            return lines
+
+        if isinstance(stmt, ast.Expr):
+            expr_c = self._emit_expr(stmt.value, pre)
+            lines.extend(f"{indent}{p}" for p in pre)
+            lines.append(f"{indent}{expr_c};")
+            return lines
+
+        if isinstance(stmt, ast.Assign):
+            if len(stmt.targets) != 1 or not isinstance(stmt.targets[0], ast.Name):
+                self._err(stmt, "Yalnizca tek degiskene atama destekleniyor.")
+            target = stmt.targets[0].id
+            val_c = self._emit_expr(stmt.value, pre)
+            lines.extend(f"{indent}{p}" for p in pre)
+            if target not in declared_locals:
+                c_type = self._infer_c_type(stmt.value)
+                declared_locals.add(target)
+                lines.append(f"{indent}{c_type} {target} = {val_c};")
+            else:
+                lines.append(f"{indent}{target} = {val_c};")
+            return lines
+
+        if isinstance(stmt, ast.If):
+            cond_c = self._emit_expr(stmt.test, pre)
+            lines.extend(f"{indent}{p}" for p in pre)
+            lines.append(f"{indent}if ({cond_c}) {{")
+            for sub in stmt.body:
+                lines.extend(self._emit_stmt(sub, indent + "    ", declared_locals.copy(), is_main))
+            if stmt.orelse:
+                if len(stmt.orelse) == 1 and isinstance(stmt.orelse[0], ast.If):
+                    lines.append(f"{indent}}} else ")
+                    elif_lines = self._emit_stmt(stmt.orelse[0], indent, declared_locals.copy(), is_main)
+                    if elif_lines:
+                        elif_lines[0] = elif_lines[0].lstrip()
+                    lines.extend(elif_lines)
+                else:
+                    lines.append(f"{indent}}} else {{")
+                    for sub in stmt.orelse:
+                        lines.extend(self._emit_stmt(sub, indent + "    ", declared_locals.copy(), is_main))
+                    lines.append(f"{indent}}}")
+            else:
+                lines.append(f"{indent}}}")
+            return lines
+
+        self._err(stmt, f"Desteklenmeyen Python ifadesi: {type(stmt).__name__}")
+        return lines
+
+    def transpile(self, source: str) -> str:
+        try:
+            tree = ast.parse(source, filename=self.filename)
+        except SyntaxError as e:
+            print(f"[-] Python soz dizimi hatasi ({self.filename}:{e.lineno}): {e.msg}")
+            sys.exit(1)
+
+        globals_c: list[str] = []
+        funcs_c: list[str] = []
+        main_fn: ast.FunctionDef | None = None
+
+        for node in tree.body:
+            if isinstance(node, ast.ImportFrom):
+                if node.module != "lex2":
+                    self._err(node, f"Desteklenmeyen modul: '{node.module}'. Yalnizca 'lex2' destekleniyor.")
+                for alias in node.names:
+                    if alias.name not in LEX2_SYMBOL_MAP:
+                        self._err(node, f"'lex2' icinde '{alias.name}' bulunamadi.")
+                    local_name = alias.asname or alias.name
+                    self.imported_lex2[local_name] = LEX2_SYMBOL_MAP[alias.name]
+
+            elif isinstance(node, ast.Assign):
+                if len(node.targets) != 1 or not isinstance(node.targets[0], ast.Name):
+                    self._err(node, "Global kapsamda yalnizca basit degisken atamalari destekleniyor.")
+                name = node.targets[0].id
+                c_type = self._infer_c_type(node.value)
+                pre: list[str] = []
+                val_c = self._emit_expr(node.value, pre)
+                for p in pre:
+                    globals_c.append(f"static {p}")
+                globals_c.append(f"static {c_type} {name} = {val_c};")
+
+            elif isinstance(node, ast.FunctionDef):
+                if node.args.args:
+                    self._err(node, "Simdilik parametresiz fonksiyonlar destekleniyor.")
+                if node.name == "main":
+                    main_fn = node
+                else:
+                    body_lines: list[str] = []
+                    for sub in node.body:
+                        body_lines.extend(self._emit_stmt(sub, "    ", set(), is_main=False))
+                    funcs_c.append(f"static void {node.name}(void) {{\n" + "\n".join(body_lines) + "\n}\n")
+
+            else:
+                self._err(node, f"Ust duzeyde desteklenmeyen yapi: {type(node).__name__}")
+
+        if main_fn is None:
+            print(f"[-] Transpile hatasi ({self.filename}): 'def main():' fonksiyonu bulunamadi.")
+            sys.exit(1)
+
+        main_lines: list[str] = []
+        for sub in main_fn.body:
+            main_lines.extend(self._emit_stmt(sub, "    ", set(), is_main=True))
+        if not main_lines or not main_lines[-1].strip().startswith("return "):
+            main_lines.append("    return 0;")
+
+        out_parts = [
+            '#include "lex2_api.h"',
+            "",
+        ]
+        if globals_c:
+            out_parts.extend(globals_c)
+            out_parts.append("")
+        if funcs_c:
+            out_parts.extend(funcs_c)
+        out_parts.append("int main(void) {\n" + "\n".join(main_lines) + "\n}\n")
+        out_parts.append(START_ASM_BLOCK)
+        return "\n".join(out_parts)
+
+
+def transpile_python_to_c(py_path: str, out_c_path: str) -> None:
+    with open(py_path, "r", encoding="utf-8") as f:
+        py_source = f.read()
+    transpiler = _PyToCTranspiler(py_path)
+    c_code = transpiler.transpile(py_source)
+    with open(out_c_path, "w", encoding="utf-8") as f:
+        f.write(c_code)
+
 
 def ensure_lnr_sdk_on_build():
-    """Derleme aşamasında ~/.lnr/ ortamının ve gerekli LEXv2 dosyalarının eksiksiz ve güncel olduğunu doğrular."""
+    """~/.lnr/ altında include/lex2_api.h, linker.ld ve lex2_format.py dosyalarının varlığını kontrol eder."""
     lnr_home = os.path.expanduser("~/.lnr")
     lnr_include = os.path.join(lnr_home, "include")
     api_header_path = os.path.join(lnr_include, "lex2_api.h")
     linker_path = os.path.join(lnr_home, "linker.ld")
     lex_format_py_path = os.path.join(lnr_home, "lex2_format.py")
-    
+
     os.makedirs(lnr_include, exist_ok=True)
-    
-    # 1. lex2_api.h kontrolü ve otomatik güncelleme
+
     need_write_api = True
     if os.path.exists(api_header_path):
         with open(api_header_path, "r", encoding="utf-8") as f:
             content = f.read()
-            # Eğer şablondaki anahtar kelimeler, picturebox ve browser fonksiyonları mevcutsa tekrar yazma
-            if "vfs_file_info_t" in content and "LEX2_API_H" in content and "picturebox_create" in content and "browser_create" in content and "input_set_text" in content:
+            if (
+                "vfs_file_info_t" in content
+                and "LEX2_API_H" in content
+                and "picturebox_create" in content
+                and "browser_create" in content
+                and "input_set_text" in content
+            ):
                 need_write_api = False
 
     if need_write_api:
         print(f"[*] Bilgi: '{api_header_path}' eksik veya güncel değil. Otomatik güncelleniyor...")
         with open(api_header_path, "w", encoding="utf-8") as f:
             f.write(DEFAULT_LEX2_API_H)
-        print(f"[✔] LEXv2 SDK başlık dosyası güncellendi.")
-        
-    # 2. linker.ld kontrolü
+        print("[✔] LEXv2 SDK başlık dosyası güncellendi.")
+
     if not os.path.exists(linker_path):
         print(f"[*] Bilgi: '{linker_path}' bulunamadı. Oluşturuluyor...")
         with open(linker_path, "w", encoding="utf-8") as f:
             f.write(LINKER_LD_TEMPLATE)
-        print(f"[✔] Merkezi linker betiği oluşturuldu.")
-        
-    # 3. lex2_format.py kontrolü
+        print("[✔] Merkezi linker betiği oluşturuldu.")
+
     if not os.path.exists(lex_format_py_path):
         print(f"[*] Bilgi: '{lex_format_py_path}' bulunamadı. Oluşturuluyor...")
         with open(lex_format_py_path, "w", encoding="utf-8") as f:
             f.write(LEX2_FORMAT_PY_TEMPLATE)
-        print(f"[✔] LEXv2 paketleme betiği oluşturuldu.")
+        print("[✔] LEXv2 paketleme betiği oluşturuldu.")
+
 
 def build_app(args):
-    print("[*] LenorOS C uygulaması LEXv2 formatında derleniyor...")
-    
-    target_dir = args.dir if hasattr(args, 'dir') and args.dir else "."
+    print("[*] LenorOS uygulaması LEXv2 formatında derleniyor...")
+
+    target_dir = args.dir if hasattr(args, "dir") and args.dir else "."
     if not os.path.exists(target_dir):
         print(f"[-] Hata: Hedef dizin bulunamadı: {target_dir}")
         sys.exit(1)
@@ -444,12 +439,19 @@ def build_app(args):
         sys.exit(1)
 
     build_dir = os.path.join(target_dir, "build")
-    clean_build = getattr(args, 'clean', False)
+    clean_build = getattr(args, "clean", False)
     if clean_build and os.path.exists(build_dir):
         print(f"[*] Temizleniyor (-c): {build_dir} siliniyor...")
         shutil.rmtree(build_dir)
 
     os.makedirs(build_dir, exist_ok=True)
+
+    is_python_source = source_path.endswith(".py") or config.get("type") == "py-app"
+    if is_python_source:
+        generated_c_path = os.path.join(build_dir, "main.generated.c")
+        print("[*] Python uygulaması derleniyor...")
+        transpile_python_to_c(source_path, generated_c_path)
+        source_path = generated_c_path
 
     main_o = os.path.join(build_dir, "main.o")
     target_elf = os.path.join(build_dir, f"{app_name}.elf")

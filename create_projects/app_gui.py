@@ -31,6 +31,29 @@ __attribute__((section(".text._start"), naked)) void _start(void) {
 }
 """
 
+GUI_MAIN_PY_TEMPLATE = """from lex2 import (
+    window_create,
+    label,
+    panel,
+    print_log,
+    ANCHOR_LEFT,
+    ANCHOR_RIGHT,
+    ANCHOR_BOTTOM
+)
+
+def main():
+    print_log("{app_name} (Python) baslatiliyor...\\n")
+    window_create("{app_name}", 400, 250)
+
+    label(30, 40, 0xFFFFFFFF, "LenorOS Python GUI Uygulamasi", ANCHOR_LEFT)
+
+    panel(30, 80, 340, 50, 0xFF2A2A2A, ANCHOR_LEFT | ANCHOR_RIGHT)
+    label(45, 97, 0xFFAAAAAA, "Durum: Sistem stabil calisiyor.", ANCHOR_LEFT)
+
+    panel(20, 200, 360, 30, 0xFF222222, ANCHOR_LEFT | ANCHOR_RIGHT | ANCHOR_BOTTOM)
+    label(30, 210, 0xFFAAAAAA, "Hazir", ANCHOR_LEFT | ANCHOR_BOTTOM)
+"""
+
 LINKER_LD_TEMPLATE = """ENTRY(_start)
 OUTPUT_FORMAT(elf32-i386)
 
@@ -374,9 +397,38 @@ def ensure_lnr_sdk():
             f.write(LEX2_FORMAT_PY_TEMPLATE)
         print(f"[✔] Varsayılan paketleme betiği oluşturuldu: {lex_format_py_path}")
 
+
+def _select_project_language(default: str = "c") -> str:
+    options = ["c", "python"]
+    idx = options.index(default) if default in options else 0
+
+    while True:
+        print(f"Proje Dili Seçin:   [ {options[idx]} ]")
+        raw = input("Seçin (1: c, 2: python veya Enter ile onayla): ").strip().lower()
+
+        if raw == "":
+            return options[idx]
+        if raw in options:
+            return raw
+        if raw == "1":
+            return "c"
+        if raw == "2":
+            return "python"
+        print("[-] Geçersiz seçim. 'c' veya 'python' girin.")
+
+
 def create_app(args):
     target_dir = args.dir if args.dir else "."
     app_name = args.name
+
+    lang = getattr(args, "lang", None)
+    if not lang:
+        lang = _select_project_language("c")
+    else:
+        lang = lang.strip().lower()
+        if lang not in ("c", "python"):
+            print(f"[-] Uyarı: Desteklenmeyen dil '{lang}', 'c' olarak ayarlanıyor.")
+            lang = "c"
     
     ensure_lnr_sdk()
     lnr_home = os.path.expanduser("~/.lnr")
@@ -403,8 +455,8 @@ def create_app(args):
         "name": app_name,
         "author": getattr(args, "author", "Kuvix Developer"),
         "version": getattr(args, "version", "1.0.0"),
-        "type": "c-app",
-        "source": "main.c",
+        "type": "py-app" if lang == "python" else "c-app",
+        "source": "main.py" if lang == "python" else "main.c",
         "compiler": "gcc",
         "c-flags": [
             "-m32", "-ffreestanding", "-fno-pie", "-fno-stack-protector",
@@ -418,11 +470,17 @@ def create_app(args):
         json.dump(lnr_config, f, indent=4)
     print(f"[+] {lnr_json_path} oluşturuldu.")
 
-    # 2. main.c oluşturma
-    main_c_path = os.path.join(target_dir, "main.c")
-    with open(main_c_path, "w", encoding="utf-8") as f:
-        f.write(GUI_MAIN_C_TEMPLATE.replace("{app_name}", app_name))
-    print(f"[+] {main_c_path} oluşturuldu.")
+    # 2. Kaynak dosya oluşturma (main.c veya main.py)
+    if lang == "python":
+        main_py_path = os.path.join(target_dir, "main.py")
+        with open(main_py_path, "w", encoding="utf-8") as f:
+            f.write(GUI_MAIN_PY_TEMPLATE.replace("{app_name}", app_name))
+            print(f"[+] {main_py_path} oluşturuldu.")
+    else:
+        main_c_path = os.path.join(target_dir, "main.c")
+        with open(main_c_path, "w", encoding="utf-8") as f:
+            f.write(GUI_MAIN_C_TEMPLATE.replace("{app_name}", app_name))
+            print(f"[+] {main_c_path} oluşturuldu.")
 
     # 3. VS Code c_cpp_properties.json desteği
     editor_choice = getattr(args, 'editor', 'vscode')
