@@ -99,6 +99,7 @@ struct lex_api_table_t {
                         uint32_t placeholder_color, uint32_t border_color, 
                         int border_thickness, void (*on_key)(char c), uint8_t anchor);
     int (*input_get_text)(int input_id, char* out_buf, int max_len);
+    int (*input_set_text)(int input_id, const char* text);
     int (*combobox_create)(int x, int y, int w, int h, const char** items, int item_count, int default_index, uint32_t bg_color, uint32_t text_color, uint32_t border_color, uint8_t anchor);
     int (*get_directory_files)(const char* full_path, vfs_file_info_t* out_list, int max_count);
     void* (*read_file)(const char* full_path, uint32_t* out_size);
@@ -185,6 +186,10 @@ static inline int input_create(int x, int y, int w, int h,
 
 static inline int input_get_text(int input_id, char* out_buf, int max_len) {
     return LEX_API_TABLE->input_get_text(input_id, out_buf, max_len);
+}
+
+static inline int input_set_text(int input_id, const char* text) {
+    return LEX_API_TABLE->input_set_text(input_id, text);
 }
 
 static inline int combobox_create(int x, int y, int w, int h, const char** items, int item_count, int default_index, uint32_t bg_color, uint32_t text_color, uint32_t border_color, uint8_t anchor) {
@@ -346,7 +351,7 @@ def ensure_lnr_sdk():
     if os.path.exists(api_header_path):
         with open(api_header_path, "r", encoding="utf-8") as f:
             content = f.read()
-            if "vfs_file_info_t" in content and "LEX2_API_H" in content and "picturebox_create" in content and "browser_create" in content:
+            if "vfs_file_info_t" in content and "LEX2_API_H" in content and "picturebox_create" in content and "browser_create" in content and "input_set_text" in content:
                 need_write_api = False
 
     if need_write_api:
